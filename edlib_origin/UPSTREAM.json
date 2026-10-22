@@ -1,0 +1,12 @@
+{
+  "repository": "https://github.com/Martinsos/edlib",
+  "commit": "0ddc23ea06abd95ab6227442acb4c27bd7607b68",
+  "branch": "master",
+  "subset": "Only upstream files needed by supered builds and references are vendored.",
+  "files_sha256": {
+    "edlib/src/edlib.cpp": "08cfda681a2ab89b08febc275492f43c0a043fc9b565e11c5cfb99a09c0ab706",
+    "edlib/include/edlib.h": "62d0529a87aa6e701c767fb9ce3786c759068f454c129641b2be38da6237ccb5",
+    "LICENSE": "93d50a42c22dccf797a893353e5eec5a691a767a6d117e9e046d4496cb38003a",
+    "README.md": "ff15d46c3c1356a47d44fcb9f464dd6860738146b9d0fb244bafc3333bd5d160"
+  }
+}
