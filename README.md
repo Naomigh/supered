@@ -1,80 +1,74 @@
 # supered
 
+**English** | [简体中文](README.zh-CN.md)
+
 **supered is an ultrafast edit-distance computation library for fixed-length 128 bp DNA sequences.** It combines compact 32-byte sequence inputs, AVX-512 SIMD processing of four sequence pairs, specialized fixed-length kernels, and reusable working memory. A corrected AVX2-based LEAP backend handles very small edit thresholds through the same public API.
 
-获取代码：
+Get the code:
 
 ```bash
 git clone https://github.com/Naomigh/supered.git
 cd supered
 ```
 
-本文介绍如何构建、链接和调用代码库。公共头文件是 [`include/supered/supered.hpp`](include/supered/supered.hpp)，CMake target 是 `supered::supered`。
+This guide covers building, linking, and using the library. The public header is [`include/supered/supered.hpp`](include/supered/supered.hpp), and the CMake target is `supered::supered`.
 
-## 1. 计算内容与使用约定
+## 1. Distance semantics and input contract
 
-supered 计算两条 **128 bp DNA** 的全局 Levenshtein 编辑距离：插入、删除和替换各计 1，匹配计 0。输入为大写 `A/C/G/T`，或者已经按下文格式编码的数据。
+supered computes the global Levenshtein edit distance between two **128 bp DNA sequences**. Insertions, deletions, and substitutions each cost 1; a match costs 0. Input consists of uppercase `A/C/G/T` characters or data already packed in the format described below.
 
-调用者通过 `Context<K>` 指定最大允许距离 `max_edit=K`：
+Choose the maximum accepted distance, `max_edit=K`, through `Context<K>`:
 
-- 真实距离 `d <= K`：返回精确距离 `d`。
-- 真实距离 `d > K`：返回 `-1`。
-- `Context<>` 等价于 `Context<128>`；任意两条 128 bp DNA 的距离都不超过 128，因此它返回完整距离。
+- If the true distance `d <= K`, return the exact distance `d`.
+- If the true distance `d > K`, return `-1`.
+- `Context<>` is equivalent to `Context<128>`. Any two 128 bp DNA sequences have distance at most 128, so this returns the full distance.
 
-返回值只有距离，不包含 CIGAR、比对位置或比对路径。公开接口处理固定长度、全局、单位编辑代价的比对。
+The output contains distances only, without a CIGAR, alignment coordinates, or an alignment path. The public API supports fixed-length, global, unit-cost alignment.
 
-输入长度、字符、编码、指针和输出空间由调用者保证；计算路径不做这些运行时校验。连续数组批量接口的 pair 数必须是 4 的倍数。
+The caller guarantees valid lengths, characters, packed data, pointers, and output storage. The compute path does not validate these conditions at runtime. The contiguous-array batch APIs require a pair count that is a multiple of four.
 
-## 2. 环境与目录
+## 2. Requirements and repository layout
 
-### 构建环境
+### Build requirements
 
-- Linux / x86-64。
-- CMake 3.20 或更新版本，以及支持 C++20 的编译器。
-- Boost 头文件（LEAP 的 `mask.h` 使用 Boost.Preprocessor；Ubuntu/Debian 对应 `libboost-dev`）。
-- 当前已经验证的工具链：Clang 22.1.2 与 LLVM lld。
-- 常规 SIMD 路径需要 AVX2 以及 AVX-512F、AVX-512VL、AVX-512VBMI2、AVX-512VPOPCNTDQ 等扩展；LEAP 路径使用 AVX2 后端及 BMI 指令。
+- Linux / x86-64.
+- CMake 3.20 or later and a C++20 compiler.
+- The build commands below use Clang 22.1.2 and LLVM lld.
+- The general SIMD path requires AVX2 and extensions including AVX-512F, AVX-512VL, AVX-512VBMI2, and AVX-512VPOPCNTDQ. The LEAP path uses its AVX2 backend and BMI instructions.
 
-构建使用 `-march=native`，目标是构建机器的指令能力。库没有运行时 CPU 能力分派；部署时使用支持该构建目标的机器。仅支持 AVX2 的机器不满足当前常规四 pair 内核的要求。
+Builds use `-march=native` to target the build machine. There is no runtime CPU dispatch; deploy the resulting binary on a machine that supports its build target. An AVX2-only machine does not meet the requirements of the current general four-pair kernel.
 
-### 当前目录布局
+### Repository layout
 
 ```text
 supered/
 ├── CMakeLists.txt
-├── include/supered/supered.hpp  公共接口
-├── include/strong/             内部实现
-├── src/                        参考实现适配
-├── generated/                  已生成的参考代码
-├── examples/basic.cpp          可运行的基本示例
-├── tests/                      正确性验证程序
-├── bench/                      性能实验程序
-├── scripts/                    实验与分析脚本
-├── edlib_origin/               原始 Edlib 参考源码与许可证
-├── leap_origin/                修正版 LEAP 所需源码
-├── THIRD_PARTY.md              上游来源及版本
-└── results/README.md           结果保存说明
+├── README.md                   English usage guide
+├── README.zh-CN.md             Chinese usage guide
+├── include/supered/supered.hpp  Public API
+├── include/strong/             Core implementation
+├── examples/basic.cpp          Runnable usage example
+├── leap_origin/                Required corrected LEAP source and provenance
+└── NOTICE                      Third-party source notice
 ```
 
-两个依赖目录以实际源码随仓库提供，克隆后即可构建，不需要初始化 submodule。
-上游 commit 和文件校验值记录在各目录的 `UPSTREAM.json` 中。第三方来源见 [THIRD_PARTY.md](THIRD_PARTY.md)。
+The required LEAP source is included as ordinary files, so a normal clone is ready to build without submodule initialization. `leap_origin/UPSTREAM.json` records the pinned upstream commit and file checksums; original notices are retained. See [NOTICE](NOTICE) for provenance.
 
-## 3. 构建与运行现有示例
+## 3. Build and run the included example
 
-在克隆后的 supered 根目录执行：
+From the root of your cloned supered repository:
 
 ```bash
 cmake -S . -B build_clang \
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_COMPILER=clang-22 \
   -DCMAKE_CXX_COMPILER=clang++-22 \
   -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
 
-cmake --build build_clang --target supered_example supered_validate -j4
+cmake --build build_clang --target supered_example -j4
 ./build_clang/supered_example
 ```
 
-示例输出：
+Expected output:
 
 ```text
 0 1 2 -1
@@ -82,21 +76,23 @@ cmake --build build_clang --target supered_example supered_validate -j4
 0 1 2 3
 ```
 
-三行分别使用 `Context<2>`、`Context<5>` 和 `Context<128>` 比对相同的四组输入。真实距离为 3 的 pair 在 `K=2` 时返回 `-1`。
+The three lines use `Context<2>`, `Context<5>`, and `Context<128>` on the same four input pairs. The pair with true distance 3 returns `-1` when `K=2`.
 
-只构建静态库：
+To build only the static library:
 
 ```bash
 cmake --build build_clang --target supered -j4
 ```
 
-输出为 `build_clang/libsupered.a`。库包含 LEAP 的编译实现；Myers 内核通过公共头文件内联到调用者中，因此使用时需要同时提供头文件和静态库。
+To configure a library-only build, add `-DSUPERED_BUILD_EXAMPLES=OFF` to the CMake configuration command. Standalone builds enable the example by default.
 
-## 4. 快速开始：一次比对四组独立 pair
+The output is `build_clang/libsupered.a`. The static library contains the compiled LEAP implementation; Myers kernels are inlined into the caller through the public headers. Provide both the headers and the static library when linking your application.
 
-下面是一个完整程序。它准备四组 `(query[i], target[i])`，通过一次 `distance4()` 调用计算四个距离。
+## 4. Quick start: compare four independent pairs in one call
 
-将下面代码保存为 `four_pairs.cpp`：
+This complete program prepares four `(query[i], target[i])` pairs and computes their distances with one `distance4()` call.
+
+Save the following as `four_pairs.cpp`:
 
 ```cpp
 #include <supered/supered.hpp>
@@ -108,7 +104,7 @@ int main() {
     std::array<supered::PackedDNA128, 4> queries;
     std::array<supered::PackedDNA128, 4> targets;
 
-    // 准备输入。实际工作流中可以直接使用已有的预编码数据。
+    // Prepare inputs. Production workflows can use existing packed data directly.
     for (int lane = 0; lane < 4; ++lane) {
         supered::DNA query;
         query.fill(bases[lane]);
@@ -127,7 +123,7 @@ int main() {
         &targets[0], &targets[1], &targets[2], &targets[3]
     };
 
-    // K=5 使用 AVX-512 四 pair 内核。
+    // K=5 uses the AVX-512 four-pair kernel.
     const auto distances = engine.distance4(query_ptrs, target_ptrs);
 
     for (int d : distances) std::cout << d << ' ';
@@ -135,7 +131,7 @@ int main() {
 }
 ```
 
-在 supered 目录下编译、链接和运行：
+Compile, link, and run from the supered directory:
 
 ```bash
 clang++-22 -O3 -std=c++20 -march=native -flto=thin -fuse-ld=lld \
@@ -146,27 +142,29 @@ clang++-22 -O3 -std=c++20 -march=native -flto=thin -fuse-ld=lld \
 ./four_pairs
 ```
 
-输出：
+Expected output:
 
 ```text
 0 1 2 3
 ```
 
-结果顺序为 `query[0]` 对 `target[0]`、`query[1]` 对 `target[1]`，依此类推。
+Results correspond to `query[0]` versus `target[0]`, `query[1]` versus `target[1]`, and so on.
 
-`distance4()` 接收的是四个输入指针，所以四条 query 或 target 可以位于不同位置，不要求彼此连续。输入对象需要在本次调用期间保持有效。计算不会修改输入。
+`distance4()` accepts four input pointers, so the queries and targets do not need to be contiguous. The pointed-to objects must remain valid throughout the call. The inputs are read-only.
 
-## 5. 接入自己的 CMake 工程
+## 5. Integrate with your CMake project
 
-下面假设调用工程包含 `main.cpp`，先在该工程根目录克隆依赖：
+Assume your application contains `main.cpp`. Clone the dependency from your application's root directory:
 
 ```bash
 git clone https://github.com/Naomigh/supered.git third_party/supered
 ```
 
+Use the following CMake configuration:
+
 ```cmake
 cmake_minimum_required(VERSION 3.20)
-project(my_alignment_tool LANGUAGES C CXX)
+project(my_alignment_tool LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -181,27 +179,26 @@ add_executable(my_alignment_tool main.cpp)
 target_link_libraries(my_alignment_tool PRIVATE supered::supered)
 ```
 
-配置并构建调用程序：
+Configure and build the application:
 
 ```bash
 cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_C_COMPILER=clang-22 \
   -DCMAKE_CXX_COMPILER=clang++-22 \
   -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
 
 cmake --build build --target my_alignment_tool -j4
 ```
 
-`supered::supered` 会传递所需的头文件目录、C++20 要求和 `-march=native` 编译选项。当前构建启用了 LTO；链接已有的 LLVM ThinLTO 静态库时使用兼容的 Clang/lld 工具链。
+`supered::supered` propagates the required include directories, C++20 requirement, and `-march=native` option. The current build enables LTO; use a compatible Clang/lld toolchain when linking the existing LLVM ThinLTO static library.
 
-当前 CMake 项目也定义了验证和实验 target。指定 `--target my_alignment_tool` 可以只构建调用程序及其库依赖。
+When included through `add_subdirectory()`, the usage example is disabled by default. Build your application with `--target my_alignment_tool`; only the library dependency is added to that target.
 
-## 6. 输入数据：32-byte PackedDNA128
+## 6. Input format: 32-byte PackedDNA128
 
-### 直接使用已有预处理结果
+### Use existing preprocessed data directly
 
-公开类型的布局为：
+The public type has this layout:
 
 ```cpp
 struct alignas(32) PackedDNA128 {
@@ -210,20 +207,20 @@ struct alignas(32) PackedDNA128 {
 };
 ```
 
-`sizeof(supered::PackedDNA128)` 为 32，类型对齐为 32 bytes。每个碱基的编码为 A=`00`、C=`01`、G=`10`、T=`11`：
+`sizeof(supered::PackedDNA128)` is 32, with 32-byte type alignment. Bases are encoded as A=`00`, C=`01`, G=`10`, and T=`11`:
 
-- `bit0` 保存每个碱基的低 bit，`bit1` 保存高 bit。
-- `[0]` 保存位置 0..63，`[1]` 保存位置 64..127。
-- 第 `i` 个碱基对应 word `i / 64` 中的 bit `i % 64`；第一个碱基位于最低 bit。
-- 四个 word 的内存顺序为 `bit0[0], bit0[1], bit1[0], bit1[1]`。
+- `bit0` stores the low bit of each base; `bit1` stores the high bit.
+- Word `[0]` stores positions 0..63; word `[1]` stores positions 64..127.
+- Base `i` occupies bit `i % 64` of word `i / 64`. The first base occupies the least significant bit.
+- The four words appear in memory as `bit0[0], bit0[1], bit1[0], bit1[1]`.
 
-已有的 read/index 预处理结果符合这一布局时，可以直接以 `PackedDNA128` 对象传入。使用该类型分配数组，或者在自有存储布局中保持相同的类型、对齐及对象生存期。
+If your read/index preprocessing already produces this layout, pass it directly as `PackedDNA128` objects. Allocate arrays using this type, or preserve the same type, alignment, and object lifetime within your own storage layout.
 
-普通的“每个碱基两 bit 相邻存储”数组需要先转换为这里的两个位平面。
+A conventional packed array with each base's two bits adjacent must first be converted into these two bit planes.
 
-### 从 DNA 字符准备输入
+### Prepare inputs from DNA characters
 
-`supered::DNA` 是 `std::array<char, 128>`。例如：
+`supered::DNA` is `std::array<char, 128>`. For example:
 
 ```cpp
 #include <supered/supered.hpp>
@@ -236,14 +233,14 @@ supered::PackedDNA128 make_example_input() {
 }
 ```
 
-如果已有长度恰好为 128 的 `std::string`：
+If you already have a `std::string` containing exactly 128 characters:
 
 ```cpp
 #include <supered/supered.hpp>
 #include <algorithm>
 #include <string>
 
-// 调用者保证 text 长度为 128，且只含 A/C/G/T。
+// The caller provides exactly 128 characters, all from A/C/G/T.
 supered::PackedDNA128 pack_read(const std::string& text) {
     supered::DNA dna;
     std::copy_n(text.begin(), 128, dna.begin());
@@ -251,23 +248,23 @@ supered::PackedDNA128 pack_read(const std::string& text) {
 }
 ```
 
-需要读取编码后的字符时，调用 `supered::decode(packed)`，返回 `DNA`。它包含恰好 128 个字符；构造字符串可以使用 `std::string(dna.begin(), dna.end())`。
+To recover characters, call `supered::decode(packed)`, which returns `DNA`. This contains exactly 128 characters. You can construct a string with `std::string(dna.begin(), dna.end())`.
 
-对同一条 read 或候选序列预先编码并复用；已有合法编码数据时直接调用距离接口。
+Encode each read or candidate sequence ahead of time and reuse the packed result. Already packed inputs can be passed directly to the distance API.
 
-## 7. 选择 max_edit 与 Context
+## 7. Choose max_edit and reuse a Context
 
-`K` 是编译期模板参数，合法范围为整数 0..128：
+`K` is a compile-time template argument, with valid integer values from 0 through 128:
 
 ```cpp
 #include <supered/supered.hpp>
 
 void context_examples() {
-    supered::Context<0> exact_match;  // 只接受距离 0
-    supered::Context<2> tiny;         // 只接受距离 0..2
-    supered::Context<5> bounded;      // 只接受距离 0..5
-    supered::Context<50> wider;       // 只接受距离 0..50
-    supered::Context<> full;          // K=128，返回完整距离
+    supered::Context<0> exact_match;  // Accept distance 0 only.
+    supered::Context<2> tiny;         // Accept distances 0..2.
+    supered::Context<5> bounded;      // Accept distances 0..5.
+    supered::Context<50> wider;       // Accept distances 0..50.
+    supered::Context<> full;          // K=128: return the full distance.
 
     static_assert(decltype(tiny)::max_edit == 2);
     static_assert(decltype(tiny)::uses_leap);
@@ -275,25 +272,25 @@ void context_examples() {
 }
 ```
 
-后端选择由 K 决定：
+The backend is selected by K:
 
-- `K=0..4`：修正版 LEAP。
-- `K=5..63`：AVX-512 四 pair Myers 带宽受限内核。
-- `K=64..128`：AVX-512 四 pair Myers 完整双 block 内核。
+- `K=0..4`: corrected LEAP.
+- `K=5..63`: AVX-512 four-pair banded Myers kernel.
+- `K=64..128`: AVX-512 four-pair complete two-block Myers kernel.
 
-路由依据是给定上限。使用 `Context<50>` 时，即使某个 pair 的实际距离为 1，也由该 Context 的 Myers 后端处理。
+Dispatch follows the supplied upper bound. A `Context<50>` uses its Myers backend even if a particular pair turns out to have distance 1.
 
-`distance4()` 在 `K>=5` 时使用四 pair SIMD；在 `K<5` 时以统一接口执行四次 LEAP 单 pair 计算。
+For `K>=5`, `distance4()` uses four-pair SIMD. For `K<5`, the same API performs four individual LEAP calculations.
 
-需要任意输入的完整距离时使用 `Context<>`。例如真实距离为 8：`Context<5>` 返回 `-1`，`Context<10>` 和 `Context<>` 均返回 8。
+Use `Context<>` when you need the full distance for arbitrary inputs. For example, if the true distance is 8, `Context<5>` returns `-1`, while `Context<10>` and `Context<>` both return 8.
 
-当前没有接收任意运行时 `int max_edit` 的重载。工作流使用多个阈值时，可以预先构造对应的多个 `Context<K>`，由上层选择调用哪个实例。
+There is currently no overload that accepts an arbitrary runtime `int max_edit`. If your workflow uses several thresholds, construct the corresponding `Context<K>` instances beforehand and select the appropriate instance in your application.
 
-在 worker 初始化阶段创建 Context，然后重复使用。Context 禁止复制和移动，函数间通过引用或指针传递。
+Create a Context during worker initialization and reuse it. Context objects cannot be copied or moved; pass them between functions by reference or pointer.
 
-## 8. 公共接口参考
+## 8. Public API reference
 
-以下声明概括实际公共接口；类型均位于 `supered` 命名空间：
+The following declarations summarize the public API. All types are in the `supered` namespace:
 
 ```cpp
 using DNA = std::array<char, 128>;
@@ -325,15 +322,15 @@ public:
 };
 ```
 
-### `distance4(queries, targets)`：四组独立 pair
+### `distance4(queries, targets)`: four independent pairs
 
-第 4 节给出了完整示例。返回值 `result[i]` 对应 `queries[i]` 与 `targets[i]` 的距离，按 lane 0..3 排列。
+Section 4 contains a complete example. `result[i]` is the distance between `queries[i]` and `targets[i]`, in lane order 0..3.
 
-每个 lane 独立返回精确距离或 `-1`，例如 `{0, 2, -1, 5}`。一次调用得到四个 pair 的结果。
+Each lane independently returns an exact distance or `-1`, for example `{0, 2, -1, 5}`. One call produces four pair results.
 
-### `distance4(query, targets)`：一个 query 对四条候选
+### `distance4(query, targets)`: one query against four candidates
 
-适合一个 read 对多个候选片段。下面的函数可以直接接入已经准备好数据的工作流：
+Use this overload for a read with several candidate reference fragments. The following function can be used with already prepared data:
 
 ```cpp
 #include <supered/supered.hpp>
@@ -350,11 +347,11 @@ supered::Distances compare_four_candidates(
 }
 ```
 
-返回的四项依次对应 `read` 与 `candidate0..3`。这四条候选可以位于不同地址。
+The four returned values correspond to `read` versus `candidate0..3`. The candidates may reside at different addresses.
 
-需要四条 query 与四条 target 的全部 16 个组合时，对每条 query 分别调用这一重载即可。
+To obtain all 16 combinations of four queries and four targets, call this overload once for each query.
 
-### `distance(query, target)`：单 pair
+### `distance(query, target)`: one pair
 
 ```cpp
 #include <supered/supered.hpp>
@@ -366,21 +363,19 @@ int compare_one_pair(supered::Context<>& engine,
 }
 ```
 
-示例使用默认 K=128，所以返回完整距离。使用有界 Context 时，返回值仍遵循“距离 <=K 时返回距离，否则 -1”。
+This example uses the default K=128 and returns the full distance. With a bounded Context, the result is still the exact distance when it is <=K, or `-1` otherwise.
 
-这是处理孤立 pair 的便利接口。当前 Myers 后端会将该 pair 广播到四个 lane，再取一个结果；LEAP 后端直接计算一次。
-四 pair 的摊销吞吐与这里单 pair 调用的耗时需要分别测量。
+This is a convenience API for an isolated pair. The current Myers backend broadcasts that pair across four lanes and returns one result; the LEAP backend computes it once. For a stream of independent pairs, use the batch APIs to fill all four lanes.
 
-### `distance_many(query, targets, count, output)`：一对多连续数组
+### `distance_many(query, targets, count, output)`: one query against a contiguous array
 
-`targets` 是连续的 `PackedDNA128` 数组，`count` 是候选数量，`output` 至少可写入 `count` 个 `int`。
-`output[i]` 对应 `query` 与 `targets[i]`。`count` 必须是 4 的倍数。
+`targets` points to a contiguous `PackedDNA128` array, `count` is the number of candidates, and `output` must hold at least `count` integers. `output[i]` is the distance between `query` and `targets[i]`. `count` must be a multiple of four.
 
 ```cpp
 #include <supered/supered.hpp>
 #include <vector>
 
-// candidates 已编码，数量为 4 的倍数。
+// Candidates are already packed; their count is a multiple of four.
 std::vector<int> compare_candidates(
     supered::Context<50>& engine,
     const supered::PackedDNA128& read,
@@ -391,18 +386,17 @@ std::vector<int> compare_candidates(
 }
 ```
 
-这个封装为了演示而在函数内分配输出。在高频工作流中，可以提前分配输出空间并复用，直接调用 `distance_many()`。
+This wrapper allocates output for demonstration. In a high-frequency workflow, allocate output storage ahead of time and reuse it with direct `distance_many()` calls.
 
-### `distance_pairs(queries, targets, count, output)`：两个连续数组逐项配对
+### `distance_pairs(queries, targets, count, output)`: pair two contiguous arrays element by element
 
-`queries` 和 `targets` 各有至少 `count` 个元素，输出至少可写入 `count` 个 `int`。
-`output[i]` 对应 `queries[i]` 与 `targets[i]`。`count` 必须是 4 的倍数。
+`queries` and `targets` each contain at least `count` elements, and `output` must hold at least `count` integers. `output[i]` is the distance between `queries[i]` and `targets[i]`. `count` must be a multiple of four.
 
 ```cpp
 #include <supered/supered.hpp>
 #include <vector>
 
-// 两个数组均已编码、长度相同，且长度为 4 的倍数。
+// Both arrays are packed, have equal lengths, and contain a multiple of four pairs.
 std::vector<int> compare_pair_arrays(
     supered::Context<50>& engine,
     const std::vector<supered::PackedDNA128>& queries,
@@ -413,92 +407,21 @@ std::vector<int> compare_pair_arrays(
 }
 ```
 
-这个接口每四组 pair 自动调用一次 `distance4()`，结果按原数组顺序写入。
+This API automatically calls `distance4()` for each group of four pairs and writes results in the original array order.
 
-### `broadcast(packed)`：构造四个相同输入指针
+### `broadcast(packed)`: construct four pointers to the same input
 
-`broadcast(packed)` 返回 `{&packed, &packed, &packed, &packed}`，用于手工构造共享输入的 `Quad`。
-它只生成指针数组，指向的原始对象需要在使用这些指针期间保持有效。
+`broadcast(packed)` returns `{&packed, &packed, &packed, &packed}` for constructing a `Quad` with a shared input. It only constructs a pointer array; the original object must remain alive while those pointers are used.
 
-通常，一个 query 对四条 target 直接使用 `distance4(query, targets)` 即可。
+For one query against four targets, you can usually call `distance4(query, targets)` directly.
 
-## 9. 线程、内存与高频调用
+## 9. Threads, memory, and high-frequency calls
 
-- 库自身在当前调用线程中执行，不自动创建计算线程。
-- 每个计算线程持有自己的 Context，尤其是持有可变工作区的 LEAP Context。
-- 只读的编码输入可以跨 worker 共享；输出分别写入各 worker 的独立空间。
-- Context 在循环外构造并复用；函数间通过引用传递。
-- 四个独立 pair 使用 `distance4()`；一条 read 对连续候选使用 `distance_many()`；两组连续输入逐项配对使用 `distance_pairs()`。
-- 将编码、内存分配和新一批数据的准备放在计算计时之外；已经预处理的数据直接传给接口。
+- The library executes in the calling thread and does not create compute threads automatically.
+- Give each compute thread its own Context, especially for the LEAP backend's mutable workspace.
+- Workers may share read-only packed inputs; write their outputs to separate storage.
+- Construct and reuse the Context outside the compute loop, and pass it by reference.
+- Use `distance4()` for four independent pairs, `distance_many()` for one read against contiguous candidates, and `distance_pairs()` for two corresponding contiguous input arrays.
+- Encode inputs and allocate output storage before the compute loop, then reuse them across calls.
 
-一次计算所需的状态初始化与匹配信息处理已由库完成，调用者只需要准备 PackedDNA128 输入和 Context。缓存驻留由调用方的工作集与调度方式决定；API 不负责从文件读取序列或将整个数据集锁定在 CPU cache 中。
-
-## 10. 运行正确性验证
-
-```bash
-cmake --build build_clang --target supered_validate -j4
-ctest --test-dir build_clang -R supered_api_correctness --output-on-failure
-```
-
-也可以直接运行：
-
-```bash
-./build_clang/supered_validate
-```
-
-该程序对照原始 Edlib，验证各个公开距离接口和多个 K，并用独立标量 DP 检查部分输入。成功时输出以 `PASS supered` 开头的验证摘要。
-
-更多已有内核验证程序位于 [`tests/`](tests/)。
-
-## 11. 性能实验工具与原始结果
-
-使用库本身不需要性能计数器权限。`bench/` 中的实验程序另外依赖 Linux perf / RDPMC 和本实验机的 AMD 事件配置，并固定到 CPU 24。
-
-构建基准程序：
-
-```bash
-cmake --build build_clang --target benchmark -j4
-```
-
-当前基础基准程序的命令行是：
-
-```text
-benchmark OUTPUT K near|cross TILES REPEATS [EXISTING_INPUTS]
-```
-
-其中 `OUTPUT` 为新的结果目录，`near` 为接近固定 query 的输入，`cross` 为固定 queries 对候选的全交叉，`EXISTING_INPUTS` 可复用同一程序保存的输入。
-当前该程序的命令行 K 支持 0、2、5、50；库的 `Context<K>` 支持完整的 0..128 范围。
-
-例如，比较原始 Edlib 预处理后的 NW 核心与 supered 四 pair 公共入口：
-
-```bash
-STRONG_ALGORITHMS=0,11 ./build_clang/benchmark \
-  results/my_benchmark/k5_near 5 near 32768 5
-```
-
-结果目录需使用尚未保存过 trial 的新路径。上述命令在每组中使用五个计算量、重复五次；数据准备和 cache touch 位于计时外，计算窗口保留时间、PMU 和结果 checksum。
-该基础基准中的 supered 项使用 `distance4()`；单 pair 接口的耗时应使用实际调用 `distance()` 的基准测量。
-
-### 单 pair / 四 pair / 原始 Edlib 比较
-
-新的独立入口覆盖 K=0、2、5、10、20、30、40、50、60、70、80、90：
-
-```bash
-cmake --build build_clang --target benchmark_single_pair cache_control -j4
-python3 scripts/run_single_pair.py results/my_single_pair_run
-```
-
-该脚本顺序执行各组，保存源码和二进制快照、输入、逐窗计时及计数器，并自动运行分析。
-输出目录使用新路径；脚本默认每组 4096 窗、5 次重复，可通过 `--windows` 与 `--repeats` 指定。
-正式五轮拟合结果包括 `summary.csv`、`fits_per_repeat.csv`、`fit_points.csv`、输入及每窗原始记录。
-
-已保存的数据也可重新分析：
-
-```bash
-python3 scripts/analyze_single_pair.py results/my_single_pair_run
-```
-
-原始开发环境中的大体积测速输入和历史结果没有纳入源码仓库；结果目录说明见 [results/README.md](results/README.md)。
-历史实验脚本也保留在 `scripts/`，其中 `run_supered.py`、旧 profiling/report 脚本可能依赖原始工作目录及历史输入位置。
-
-引用性能结果时，应注明 K、输入分布、单 pair 或四 pair 接口、CPU、缓存条件和计时范围。四 pair 结果中的 ns/pair 已按实际 pair 数归一化。
+The library handles the per-call state initialization and matching information needed for computation. Callers prepare the PackedDNA128 inputs and Context. Cache residency depends on the caller's working set and scheduling; the API does not read sequence files or lock an entire dataset into CPU cache.

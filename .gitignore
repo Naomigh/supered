@@ -1,12 +1,6 @@
 /build*/
-/results/*
-!/results/README.md
-__pycache__/
-*.py[cod]
+.cache/
 *.o
 *.a
 *.so
-*.profraw
-perf.data*
-.cache/
 /four_pairs

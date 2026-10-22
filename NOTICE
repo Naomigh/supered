@@ -1,0 +1,8 @@
+supered includes corrected LEAP backend source files from:
+https://github.com/YourongZhou/LEAP
+Branch: codex/leap-correctness-fixes
+Commit: 6a711282f3494b6b9886236e58c7dfba6efa885a
+
+The original source notices are preserved. Pinned upstream identity and file
+SHA256 hashes are recorded in leap_origin/UPSTREAM.json. This distribution does
+not assign a replacement license to the upstream LEAP source files.

@@ -2,7 +2,7 @@
   "repository": "https://github.com/YourongZhou/LEAP",
   "commit": "6a711282f3494b6b9886236e58c7dfba6efa885a",
   "branch": "codex/leap-correctness-fixes",
-  "subset": "Only upstream files needed by supered builds and references are vendored.",
+  "subset": "Required corrected LEAP backend implementation and headers for supered.",
   "files_sha256": {
     "SIMD_ED.cc": "4a1f24aa73c866560cb0d68a3a988ce24f2c5d8e64e5ae3e877153ee4deb3d9d",
     "SIMD_ED.h": "bcef3152de41888254acca9f203008f371616a0ed9ecc611b8a015aaefba6f0a",
@@ -17,7 +17,6 @@
     "popcount.c": "7892de3195b27d793243338a07e5f993c2004684a0f1c2d9e61b84781109f48b",
     "popcount.h": "33d8509059738f5d6e13ba1dc6e7e8fb88d49114d961e32eac0f9ffc7539a10c",
     "print.c": "48ba1a937e2b8f3ca1c32eddccb8cd5c27e6f8038d89788cbe281d1bd746c0af",
-    "print.h": "1907d932e857ca608db150397d52303155231098c2fb1783dc8e3e729c4a678b",
-    "README.md": "ed8339f7884405925a5c170c4765e1ea1683d8ea4333250f7131baa625198eb4"
+    "print.h": "1907d932e857ca608db150397d52303155231098c2fb1783dc8e3e729c4a678b"
   }
 }

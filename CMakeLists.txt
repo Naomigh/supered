@@ -1,44 +1,37 @@
 cmake_minimum_required(VERSION 3.20)
-project(supered LANGUAGES C CXX)
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+project(supered LANGUAGES CXX)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-add_executable(profile bench/profile.cpp)
-target_include_directories(profile PRIVATE include edlib_origin/edlib/include leap_origin)
-target_compile_options(profile PRIVATE -O3 -march=native -g -fno-omit-frame-pointer)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-add_compile_options(-O3 -march=native -Wall -Wextra -Wno-unused-function)
-include_directories(include edlib_origin/edlib/include leap_origin)
-add_library(supered STATIC leap_origin/SIMD_ED.cc leap_origin/SHD.cc
-    leap_origin/bit_convert.c leap_origin/shift.c leap_origin/mask.c
-    leap_origin/popcount.c leap_origin/print.c)
-# LEAP's historical .c files contain C++ intrinsics; compile as C++ consistently.
-set_source_files_properties(leap_origin/bit_convert.c leap_origin/shift.c
-    leap_origin/mask.c leap_origin/popcount.c leap_origin/print.c PROPERTIES LANGUAGE CXX)
-target_compile_options(supered PRIVATE -Wno-unused-variable -Wno-sign-compare)
-target_compile_options(supered PUBLIC -march=native)
-target_compile_features(supered PUBLIC cxx_std_20)
-target_include_directories(supered PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include
-    ${CMAKE_CURRENT_SOURCE_DIR}/leap_origin)
+
+set(SUPERED_LEAP_SOURCES
+    leap_origin/SIMD_ED.cc
+    leap_origin/SHD.cc
+    leap_origin/bit_convert.c
+    leap_origin/shift.c
+    leap_origin/mask.c
+    leap_origin/popcount.c
+    leap_origin/print.c)
+# LEAP's historical .c files contain C++ intrinsics.
+set_source_files_properties(${SUPERED_LEAP_SOURCES} PROPERTIES LANGUAGE CXX)
+
+add_library(supered STATIC ${SUPERED_LEAP_SOURCES})
 add_library(supered::supered ALIAS supered)
-add_library(leap_reference ALIAS supered)
-add_executable(supered_example examples/basic.cpp)
-target_link_libraries(supered_example PRIVATE supered::supered)
-add_executable(supered_validate tests/supered_validate.cpp)
-target_link_libraries(supered_validate PRIVATE supered::supered)
-enable_testing()
-add_test(NAME supered_api_correctness COMMAND supered_validate)
-add_executable(validate tests/validate.cpp)
-target_link_libraries(validate PRIVATE leap_reference)
-add_executable(benchmark bench/benchmark.cpp)
-target_link_libraries(benchmark PRIVATE leap_reference)
-add_executable(cache_control bench/cache_control.cpp)
-add_executable(validate_indels tests/validate_indels.cpp)
-target_link_libraries(validate_indels PRIVATE leap_reference)
-add_executable(validate_diagnostic tests/validate_diagnostic.cpp)
-add_executable(profile_v3 bench/profile_v3.cpp)
-set_property(TARGET profile_v3 PROPERTY INTERPROCEDURAL_OPTIMIZATION FALSE)
-target_compile_options(profile_v3 PRIVATE -g -fno-omit-frame-pointer)
-add_executable(validate_banded tests/validate_banded.cpp)
-add_executable(benchmark_single_pair bench/single_pair.cpp)
-target_link_libraries(benchmark_single_pair PRIVATE supered::supered)
+target_compile_features(supered PUBLIC cxx_std_20)
+target_include_directories(supered PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/leap_origin)
+target_compile_options(supered PUBLIC -march=native PRIVATE
+    -O3 -Wall -Wextra -Wno-unused-function -Wno-unused-variable -Wno-sign-compare)
+set_property(TARGET supered PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    option(SUPERED_BUILD_EXAMPLES "Build the basic usage example" ON)
+else()
+    option(SUPERED_BUILD_EXAMPLES "Build the basic usage example" OFF)
+endif()
+
+if(SUPERED_BUILD_EXAMPLES)
+    add_executable(supered_example examples/basic.cpp)
+    target_link_libraries(supered_example PRIVATE supered::supered)
+    target_compile_options(supered_example PRIVATE -O3)
+    set_property(TARGET supered_example PROPERTY INTERPROCEDURAL_OPTIMIZATION TRUE)
+endif()
