@@ -1,0 +1,71 @@
+{
+  "reads": 10000000,
+  "anchors": 20,
+  "pairs": 200000000,
+  "max_edit": 80,
+  "all_200M_equal_original_Edlib": true,
+  "max_true_distance": 80,
+  "min_true_distance": 50,
+  "mean_true_distance": 70.595124885,
+  "fitted_ns_per_pair": 97.91313146166667,
+  "ci95_half_ns": 0.2531141926017493,
+  "fitted_equivalent_200M_seconds": 19.582626292333334,
+  "pair_per_second": 10213134.694721755,
+  "read_per_second": 510656.73473608773,
+  "min_r2": 0.9999821791497742,
+  "full_observed_cpu_seconds": [
+    19.883681589,
+    19.892829037,
+    19.881434691
+  ],
+  "full_observed_ns_per_pair": [
+    99.418407945,
+    99.464145185,
+    99.407173455
+  ],
+  "full_trial_wall_seconds": [
+    20.782410387,
+    20.778723004,
+    20.76982909
+  ],
+  "full_unfiltered_first_cpu_seconds": [
+    19.888824716,
+    19.898313194,
+    19.886543991
+  ],
+  "full_unfiltered_first_dram_fills": [
+    20960,
+    20398,
+    20332
+  ],
+  "secondary_full_cpu_seconds": 19.898361893,
+  "secondary_ns_per_pair": 99.491809465,
+  "accepted_windows": 2000000,
+  "rejected_windows": 40988,
+  "accepted_dram_fills": 0,
+  "candidates": 10044397,
+  "rejected_candidates": 44397,
+  "generation_wall_seconds": 19.779052687,
+  "independent_DP_pairs": 20000,
+  "oracle_validation_wall_seconds": 259.896208571,
+  "files": {
+    "anchors.bin": {
+      "bytes": 640,
+      "sha256": "ce1e2e1d0b631c991a4b0a529471b12e854e4bcf2c7567162f5254bf47eb4af7"
+    },
+    "reads.bin": {
+      "bytes": 320000000,
+      "sha256": "2e49f4595216fe9f85b12b38270c5300416a306c5abdf37652dc5660d8199a89"
+    },
+    "expected_distances.u8": {
+      "bytes": 200000000,
+      "sha256": "ec20b7e0bf7a7e9796581c580dd880170e0df1e0424519e766b6ebebed96a1be"
+    },
+    "edlib_distances.u8": {
+      "bytes": 200000000,
+      "sha256": "ec20b7e0bf7a7e9796581c580dd880170e0df1e0424519e766b6ebebed96a1be"
+    }
+  },
+  "production_headers_unchanged": true,
+  "single_compute_thread_cpu24": true
+}

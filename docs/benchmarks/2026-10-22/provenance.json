@@ -1,0 +1,41 @@
+{
+  "measurement_date": "2026-10-22",
+  "documentation_date": "2026-10-23",
+  "compiler": "Ubuntu clang version 22.1.2 (++20260313123228+6121df77a781-1~exp1~20260313003408.46)",
+  "build_flags": [
+    "-O3",
+    "-std=c++20",
+    "-march=native",
+    "LTO"
+  ],
+  "reported_cpu": "AMD EPYC 9654 96-Core Processor",
+  "hypervisor": "VMware",
+  "compute_threads": 1,
+  "pinned_guest_cpu": 24,
+  "edlib_origin_commit": "0ddc23ea06abd95ab6227442acb4c27bd7607b68",
+  "leap_origin_commit": "6a711282f3494b6b9886236e58c7dfba6efa885a",
+  "production_header_sha256": {
+    "include/supered/supered.hpp": "5b4f28f51cb0302cd991626acf1cb95801817b62d18ab31bd5b92b80d3333861",
+    "include/strong/packed.hpp": "c002ed274eaf63b334b55ac343733fe4304a6419e44aafed36b558937ba0c3bc",
+    "include/strong/banded.hpp": "6dd3285243973279bb92efff15c703d5a84ba6cb3dc8532cf427a7662bdbf3da",
+    "include/strong/myers.hpp": "a8c11fd698267c6ad2c00fb33ac97286707d0375216e2dc5cc715abc1d4bc71f"
+  },
+  "published_evidence_sha256": {
+    "anchor_fit_points.csv": "78451c9188d2d67aa2041e3c7b1e370fdc46b335b953708972194df12fc926cd",
+    "anchor_fits.csv": "04cc28a22d9d8eed62838ba313eeb4cae40157dd8520ad6b09d34c7bb3826fad",
+    "anchor_summary.json": "b9393ed9c620c9feb7e3471a347ce2af27b8827e19304e22aa8d0f2d4c08573f",
+    "independent_fit_points.csv": "862eda8fb5160cfa5bdfbad088f42f5a00c41429f3d5d3851b7ffd9d8ed4902d",
+    "independent_fits.csv": "09f5315e215a5b1299ba5fa5f1fad6341055320ca8c179629aea7d81c7373470",
+    "independent_summary.csv": "5cce0c9da3ea1eaeda3b6d74c9e73a487018ad7d26a24a059f3a40cbdd6516c0"
+  },
+  "note": "Published production headers are byte-identical to the benchmark working tree. This documentation update changes no library source or build configuration.",
+  "original_evidence_sha256": {
+    "anchor_fit_points.csv": "a0ea239f1a3a4e63df3d7e9afae5bab5d10aa05b401740d3524733bf19df492e",
+    "anchor_fits.csv": "80e5747b903a56453da133921b6aead434bbe9115ea771f19e90ef8d097b7232",
+    "anchor_summary.json": "b9393ed9c620c9feb7e3471a347ce2af27b8827e19304e22aa8d0f2d4c08573f",
+    "independent_fit_points.csv": "fdb6815396e673ae5255840586471fa775204994c457622e55f835b0e2de7c7d",
+    "independent_fits.csv": "3c4d2d76d2f9c91df3278a056c54d7289ce16826e619f9fe61c8d6aee8954801",
+    "independent_summary.csv": "8d503ae1cd5e8404b304e863605a72f7a62179a61d4c54d5282cb03edc45cfb9"
+  },
+  "csv_format": "Line endings normalized from CRLF to LF for publication; all cells and numeric precision unchanged."
+}

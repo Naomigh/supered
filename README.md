@@ -1,74 +1,61 @@
 # supered
 
+**Fast, exact edit distance for 128 bp DNA.**
+
 **English** | [简体中文](README.zh-CN.md)
 
-**supered is an ultrafast edit-distance computation library for fixed-length 128 bp DNA sequences.** It combines compact 32-byte sequence inputs, AVX-512 SIMD processing of four sequence pairs, specialized fixed-length kernels, and reusable working memory. A corrected AVX2-based LEAP backend handles very small edit thresholds through the same public API.
+supered is a C++ library for global, unit-cost Levenshtein distance on prepacked DNA sequences. It combines four-pair AVX-512 Myers kernels with a corrected LEAP backend for small edit thresholds, using the same **32-byte input format** throughout.
 
-Get the code:
+```cpp
+// Inputs are already packed; reuse the context across calls.
+supered::Context<80> engine;
+auto distances = engine.distance4(
+    read, {&anchor0, &anchor1, &anchor2, &anchor3});
+// distances[i]: exact distance <= 80, or -1 if the distance exceeds 80.
+```
+
+In a cache-conditioned, single-thread experiment with **10 million reads × 20 anchors**, supered achieved **97.91 ns/pair**, or **10.21 million pairs/s**. See [Performance](#performance) for the workload, measurement boundaries, and comparison with original Edlib.
+
+## Features
+
+- **Exact distances:** global alignment with insertion, deletion, and substitution cost 1; matching cost 0.
+- **Compact inputs:** two 128-bit planes, totaling 32 bytes per 128 bp sequence, shared by both backends.
+- **Four-pair SIMD:** compute four independent distances per Myers call, including one read against four anchors.
+- **Threshold specialization:** compile-time `Context<K>` selects corrected LEAP for `K < 5`, moving-band Myers for `5 <= K < 64`, and complete two-block Myers for larger thresholds.
+- **Reusable workspace:** prepare inputs and construct a context once; reuse them in the compute loop.
+- **CMake integration:** link the `supered::supered` target; required corrected LEAP sources are included.
+
+The public API covers fixed-length **128 bp, uppercase A/C/G/T** inputs and returns distances. It provides global distance calculation without traceback, alignment coordinates, or CIGAR generation.
+
+## Contents
+
+- [Building](#building)
+- [Using supered in your project](#using-supered-in-your-project)
+- [Usage](#usage)
+- [Input format](#input-format)
+- [API](#api)
+- [Performance](#performance)
+- [Implementation](#implementation)
+- [Validation](#validation)
+- [Acknowledgements and source provenance](#acknowledgements-and-source-provenance)
+
+## Building
+
+Requirements: Linux/x86-64, CMake 3.20 or later, and a C++20 compiler. The tested toolchain is Clang 22.1.2 with LLVM lld. The current kernels require AVX2, BMI instructions, and AVX-512 extensions including **F, VL, VBMI2, and VPOPCNTDQ**.
 
 ```bash
 git clone https://github.com/Naomigh/supered.git
 cd supered
-```
 
-This guide covers building, linking, and using the library. The public header is [`include/supered/supered.hpp`](include/supered/supered.hpp), and the CMake target is `supered::supered`.
-
-## 1. Distance semantics and input contract
-
-supered computes the global Levenshtein edit distance between two **128 bp DNA sequences**. Insertions, deletions, and substitutions each cost 1; a match costs 0. Input consists of uppercase `A/C/G/T` characters or data already packed in the format described below.
-
-Choose the maximum accepted distance, `max_edit=K`, through `Context<K>`:
-
-- If the true distance `d <= K`, return the exact distance `d`.
-- If the true distance `d > K`, return `-1`.
-- `Context<>` is equivalent to `Context<128>`. Any two 128 bp DNA sequences have distance at most 128, so this returns the full distance.
-
-The output contains distances only, without a CIGAR, alignment coordinates, or an alignment path. The public API supports fixed-length, global, unit-cost alignment.
-
-The caller guarantees valid lengths, characters, packed data, pointers, and output storage. The compute path does not validate these conditions at runtime. The contiguous-array batch APIs require a pair count that is a multiple of four.
-
-## 2. Requirements and repository layout
-
-### Build requirements
-
-- Linux / x86-64.
-- CMake 3.20 or later and a C++20 compiler.
-- The build commands below use Clang 22.1.2 and LLVM lld.
-- The general SIMD path requires AVX2 and extensions including AVX-512F, AVX-512VL, AVX-512VBMI2, and AVX-512VPOPCNTDQ. The LEAP path uses its AVX2 backend and BMI instructions.
-
-Builds use `-march=native` to target the build machine. There is no runtime CPU dispatch; deploy the resulting binary on a machine that supports its build target. An AVX2-only machine does not meet the requirements of the current general four-pair kernel.
-
-### Repository layout
-
-```text
-supered/
-├── CMakeLists.txt
-├── README.md                   English usage guide
-├── README.zh-CN.md             Chinese usage guide
-├── include/supered/supered.hpp  Public API
-├── include/strong/             Core implementation
-├── examples/basic.cpp          Runnable usage example
-├── leap_origin/                Required corrected LEAP source and provenance
-└── NOTICE                      Third-party source notice
-```
-
-The required LEAP source is included as ordinary files, so a normal clone is ready to build without submodule initialization. `leap_origin/UPSTREAM.json` records the pinned upstream commit and file checksums; original notices are retained. See [NOTICE](NOTICE) for provenance.
-
-## 3. Build and run the included example
-
-From the root of your cloned supered repository:
-
-```bash
-cmake -S . -B build_clang \
+cmake -S . -B build \
   -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_CXX_COMPILER=clang++-22 \
   -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
-
-cmake --build build_clang --target supered_example -j4
-./build_clang/supered_example
+cmake --build build --target supered_example -j4
+./build/supered_example
 ```
 
-Expected output:
+The included example prints:
 
 ```text
 0 1 2 -1
@@ -76,129 +63,91 @@ Expected output:
 0 1 2 3
 ```
 
-The three lines use `Context<2>`, `Context<5>`, and `Context<128>` on the same four input pairs. The pair with true distance 3 returns `-1` when `K=2`.
+These lines use `Context<2>`, `Context<5>`, and `Context<128>`, respectively. The last pair has distance 3 and exceeds the first context's threshold.
 
-To build only the static library:
+For a library-only build, configure with `-DSUPERED_BUILD_EXAMPLES=OFF` and build `--target supered`. The resulting static library is `build/libsupered.a`. A normal clone contains the required dependencies; submodule initialization is unnecessary.
 
-```bash
-cmake --build build_clang --target supered -j4
+The build uses `-march=native` and link-time optimization. Build and deploy on compatible CPUs, and use a compatible compiler/linker when linking the static library. CPU dispatch is selected at build time.
+
+## Using supered in your project
+
+Clone this repository into `third_party/supered`, then link its CMake target:
+
+```cmake
+cmake_minimum_required(VERSION 3.20)
+project(my_alignment_tool LANGUAGES CXX)
+
+set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+add_subdirectory(third_party/supered)
+
+add_executable(my_alignment_tool main.cpp)
+target_link_libraries(my_alignment_tool PRIVATE supered::supered)
 ```
 
-To configure a library-only build, add `-DSUPERED_BUILD_EXAMPLES=OFF` to the CMake configuration command. Standalone builds enable the example by default.
+Configure your application with a Release build and the same Clang/lld options shown above. The target propagates its include directories, C++20 requirement, and `-march=native`. Examples are disabled by default when supered is added as a subdirectory.
 
-The output is `build_clang/libsupered.a`. The static library contains the compiled LEAP implementation; Myers kernels are inlined into the caller through the public headers. Provide both the headers and the static library when linking your application.
+The public header is [`<supered/supered.hpp>`](include/supered/supered.hpp). Myers kernels are defined in the headers; the static library supplies the corrected LEAP backend. Keep both when distributing a built dependency.
 
-## 4. Quick start: compare four independent pairs in one call
+## Usage
 
-This complete program prepares four `(query[i], target[i])` pairs and computes their distances with one `distance4()` call.
-
-Save the following as `four_pairs.cpp`:
+This complete example compares one read against four anchors. Encoding and context construction happen before the distance call; an application with existing packed inputs can pass them directly.
 
 ```cpp
 #include <supered/supered.hpp>
-#include <array>
 #include <iostream>
 
 int main() {
-    constexpr char bases[] = "ACGT";
-    std::array<supered::PackedDNA128, 4> queries;
-    std::array<supered::PackedDNA128, 4> targets;
+    supered::DNA dna;
+    dna.fill('A');
+    const auto read = supered::encode(dna);
 
-    // Prepare inputs. Production workflows can use existing packed data directly.
-    for (int lane = 0; lane < 4; ++lane) {
-        supered::DNA query;
-        query.fill(bases[lane]);
-        auto target = query;
-        for (int j = 0; j < lane; ++j)
-            target[10 + 30 * j] = bases[(lane + 1) % 4];
-        queries[lane] = supered::encode(query);
-        targets[lane] = supered::encode(target);
+    supered::PackedDNA128 anchors[4];
+    for (int i = 0; i < 4; ++i) {
+        auto target = dna;
+        for (int j = 0; j < i; ++j) target[10 + 30 * j] = 'C';
+        anchors[i] = supered::encode(target);
     }
 
-    supered::Context<5> engine;
-    supered::Quad query_ptrs{
-        &queries[0], &queries[1], &queries[2], &queries[3]
-    };
-    supered::Quad target_ptrs{
-        &targets[0], &targets[1], &targets[2], &targets[3]
-    };
-
-    // K=5 uses the AVX-512 four-pair kernel.
-    const auto distances = engine.distance4(query_ptrs, target_ptrs);
+    supered::Context<80> engine;
+    const auto distances = engine.distance4(
+        read, {&anchors[0], &anchors[1], &anchors[2], &anchors[3]});
 
     for (int d : distances) std::cout << d << ' ';
     std::cout << '\n';
 }
 ```
 
-Compile, link, and run from the supered directory:
+Save as `example.cpp`, then compile and run from the repository root after building the library:
 
 ```bash
 clang++-22 -O3 -std=c++20 -march=native -flto=thin -fuse-ld=lld \
-  -Iinclude -Ileap_origin \
-  four_pairs.cpp build_clang/libsupered.a \
-  -o four_pairs
-
-./four_pairs
+  -Iinclude -Ileap_origin example.cpp build/libsupered.a -o example
+./example
 ```
 
-Expected output:
+Output: `0 1 2 3`.
 
-```text
-0 1 2 3
+For four independent pairs, pass two pointer arrays:
+
+```cpp
+const auto distances = engine.distance4(
+    {&query0, &query1, &query2, &query3},
+    {&target0, &target1, &target2, &target3});
 ```
 
-Results correspond to `query[0]` versus `target[0]`, `query[1]` versus `target[1]`, and so on.
+`distances[i]` corresponds to `query[i]` versus `target[i]`. Inputs may be noncontiguous and remain read-only during the call. To compare one read with 20 contiguous anchors, allocate `int output[20]` and call `engine.distance_many(read, anchors, 20, output)`; this makes five four-pair calls.
 
-`distance4()` accepts four input pointers, so the queries and targets do not need to be contiguous. The pointed-to objects must remain valid throughout the call. The inputs are read-only.
+### Choosing a threshold
 
-## 5. Integrate with your CMake project
+`K` is a compile-time integer from 0 through 128. Each result is the **exact distance when `d <= K`, or `-1` otherwise**. `Context<>` means `Context<128>` and returns the complete distance for every valid input pair.
 
-Assume your application contains `main.cpp`. Clone the dependency from your application's root directory:
+Choose `Context<2>` to accept distances 0–2, `Context<50>` for 0–50, or `Context<>` when the distance is unknown. Backend selection follows the supplied threshold: `Context<50>` uses Myers even for a pair whose actual distance is 1.
 
-```bash
-git clone https://github.com/Naomigh/supered.git third_party/supered
-```
+Construct one context per worker and reuse it. Contexts cannot be copied or moved; pass them by reference. The library executes in the calling thread, so applications control parallel scheduling and output ownership.
 
-Use the following CMake configuration:
+## Input format
 
-```cmake
-cmake_minimum_required(VERSION 3.20)
-project(my_alignment_tool LANGUAGES CXX)
-
-set(CMAKE_CXX_STANDARD 20)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
-
-add_subdirectory(
-    ${CMAKE_CURRENT_SOURCE_DIR}/third_party/supered
-    ${CMAKE_BINARY_DIR}/supered-build
-)
-
-add_executable(my_alignment_tool main.cpp)
-target_link_libraries(my_alignment_tool PRIVATE supered::supered)
-```
-
-Configure and build the application:
-
-```bash
-cmake -S . -B build \
-  -DCMAKE_BUILD_TYPE=Release \
-  -DCMAKE_CXX_COMPILER=clang++-22 \
-  -DCMAKE_EXE_LINKER_FLAGS=-fuse-ld=lld
-
-cmake --build build --target my_alignment_tool -j4
-```
-
-`supered::supered` propagates the required include directories, C++20 requirement, and `-march=native` option. The current build enables LTO; use a compatible Clang/lld toolchain when linking the existing LLVM ThinLTO static library.
-
-When included through `add_subdirectory()`, the usage example is disabled by default. Build your application with `--target my_alignment_tool`; only the library dependency is added to that target.
-
-## 6. Input format: 32-byte PackedDNA128
-
-### Use existing preprocessed data directly
-
-The public type has this layout:
+[`PackedDNA128`](include/strong/packed.hpp) has size 32 bytes and alignment 32 bytes:
 
 ```cpp
 struct alignas(32) PackedDNA128 {
@@ -207,92 +156,18 @@ struct alignas(32) PackedDNA128 {
 };
 ```
 
-`sizeof(supered::PackedDNA128)` is 32, with 32-byte type alignment. Bases are encoded as A=`00`, C=`01`, G=`10`, and T=`11`:
+A/C/G/T map to `00/01/10/11`. `bit0` contains the low bit of each base, and `bit1` contains the high bit. Position `i` occupies bit `i % 64` of word `i / 64`; position 0 is the least significant bit. Memory order is `bit0[0], bit0[1], bit1[0], bit1[1]`.
 
-- `bit0` stores the low bit of each base; `bit1` stores the high bit.
-- Word `[0]` stores positions 0..63; word `[1]` stores positions 64..127.
-- Base `i` occupies bit `i % 64` of word `i / 64`. The first base occupies the least significant bit.
-- The four words appear in memory as `bit0[0], bit0[1], bit1[0], bit1[1]`.
+Use `encode(DNA)` to prepare the two bit planes and `decode(packed)` to recover the 128 characters. `DNA` is `std::array<char, 128>`, without a terminating null character. Existing read/index data in this layout can be used directly as properly aligned, live `PackedDNA128` objects. Conventional packing with two adjacent bits per base requires conversion to the two-plane layout.
 
-If your read/index preprocessing already produces this layout, pass it directly as `PackedDNA128` objects. Allocate arrays using this type, or preserve the same type, alignment, and object lifetime within your own storage layout.
+Callers provide valid 128 bp A/C/G/T inputs, valid pointers, aligned packed objects, and sufficient output storage. The hot path relies on these preconditions and omits runtime input validation. Array batch sizes must be multiples of four.
 
-A conventional packed array with each base's two bits adjacent must first be converted into these two bit planes.
+## API
 
-### Prepare inputs from DNA characters
-
-`supered::DNA` is `std::array<char, 128>`. For example:
+The following declarations summarize the public interface:
 
 ```cpp
-#include <supered/supered.hpp>
-
-supered::PackedDNA128 make_example_input() {
-    supered::DNA dna;
-    dna.fill('A');
-    dna[10] = 'C';
-    return supered::encode(dna);
-}
-```
-
-If you already have a `std::string` containing exactly 128 characters:
-
-```cpp
-#include <supered/supered.hpp>
-#include <algorithm>
-#include <string>
-
-// The caller provides exactly 128 characters, all from A/C/G/T.
-supered::PackedDNA128 pack_read(const std::string& text) {
-    supered::DNA dna;
-    std::copy_n(text.begin(), 128, dna.begin());
-    return supered::encode(dna);
-}
-```
-
-To recover characters, call `supered::decode(packed)`, which returns `DNA`. This contains exactly 128 characters. You can construct a string with `std::string(dna.begin(), dna.end())`.
-
-Encode each read or candidate sequence ahead of time and reuse the packed result. Already packed inputs can be passed directly to the distance API.
-
-## 7. Choose max_edit and reuse a Context
-
-`K` is a compile-time template argument, with valid integer values from 0 through 128:
-
-```cpp
-#include <supered/supered.hpp>
-
-void context_examples() {
-    supered::Context<0> exact_match;  // Accept distance 0 only.
-    supered::Context<2> tiny;         // Accept distances 0..2.
-    supered::Context<5> bounded;      // Accept distances 0..5.
-    supered::Context<50> wider;       // Accept distances 0..50.
-    supered::Context<> full;          // K=128: return the full distance.
-
-    static_assert(decltype(tiny)::max_edit == 2);
-    static_assert(decltype(tiny)::uses_leap);
-    static_assert(!decltype(bounded)::uses_leap);
-}
-```
-
-The backend is selected by K:
-
-- `K=0..4`: corrected LEAP.
-- `K=5..63`: AVX-512 four-pair banded Myers kernel.
-- `K=64..128`: AVX-512 four-pair complete two-block Myers kernel.
-
-Dispatch follows the supplied upper bound. A `Context<50>` uses its Myers backend even if a particular pair turns out to have distance 1.
-
-For `K>=5`, `distance4()` uses four-pair SIMD. For `K<5`, the same API performs four individual LEAP calculations.
-
-Use `Context<>` when you need the full distance for arbitrary inputs. For example, if the true distance is 8, `Context<5>` returns `-1`, while `Context<10>` and `Context<>` both return 8.
-
-There is currently no overload that accepts an arbitrary runtime `int max_edit`. If your workflow uses several thresholds, construct the corresponding `Context<K>` instances beforehand and select the appropriate instance in your application.
-
-Create a Context during worker initialization and reuse it. Context objects cannot be copied or moved; pass them between functions by reference or pointer.
-
-## 8. Public API reference
-
-The following declarations summarize the public API. All types are in the `supered` namespace:
-
-```cpp
+namespace supered {
 using DNA = std::array<char, 128>;
 using Quad = std::array<const PackedDNA128*, 4>;
 using Distances = std::array<int, 4>;
@@ -309,119 +184,90 @@ public:
 
     Distances distance4(const Quad& queries, const Quad& targets);
     Distances distance4(const PackedDNA128& query, const Quad& targets);
-
     int distance(const PackedDNA128& query, const PackedDNA128& target);
 
     void distance_many(const PackedDNA128& query,
                        const PackedDNA128* targets,
                        std::size_t count, int* output);
-
     void distance_pairs(const PackedDNA128* queries,
                         const PackedDNA128* targets,
                         std::size_t count, int* output);
 };
-```
-
-### `distance4(queries, targets)`: four independent pairs
-
-Section 4 contains a complete example. `result[i]` is the distance between `queries[i]` and `targets[i]`, in lane order 0..3.
-
-Each lane independently returns an exact distance or `-1`, for example `{0, 2, -1, 5}`. One call produces four pair results.
-
-### `distance4(query, targets)`: one query against four candidates
-
-Use this overload for a read with several candidate reference fragments. The following function can be used with already prepared data:
-
-```cpp
-#include <supered/supered.hpp>
-
-supered::Distances compare_four_candidates(
-    supered::Context<50>& engine,
-    const supered::PackedDNA128& read,
-    const supered::PackedDNA128& candidate0,
-    const supered::PackedDNA128& candidate1,
-    const supered::PackedDNA128& candidate2,
-    const supered::PackedDNA128& candidate3) {
-    return engine.distance4(read,
-        {&candidate0, &candidate1, &candidate2, &candidate3});
 }
 ```
 
-The four returned values correspond to `read` versus `candidate0..3`. The candidates may reside at different addresses.
+| Method | Comparisons | Result |
+| --- | --- | --- |
+| `distance4(queries, targets)` | Four element-wise pairs | Four distances, in lane order |
+| `distance4(query, targets)` | One query against four targets | Four distances, in target order |
+| `distance(query, target)` | One pair | One distance |
+| `distance_many(query, targets, count, output)` | One query against a contiguous target array | `output[i] = distance(query, targets[i])` |
+| `distance_pairs(queries, targets, count, output)` | Two contiguous arrays, element by element | `output[i] = distance(queries[i], targets[i])` |
 
-To obtain all 16 combinations of four queries and four targets, call this overload once for each query.
+Every distance obeys the same threshold semantics. Both array APIs require `count` to be a multiple of four and `output` to hold at least `count` integers. `broadcast(packed)` creates four pointers to one existing packed object.
 
-### `distance(query, target)`: one pair
+For `K >= 5`, `distance4()` processes four useful pairs concurrently. The convenience `distance()` broadcasts one pair across the Myers lanes and returns lane 0; use the batch APIs for throughput. For `K < 5`, `distance4()` makes four individual LEAP calls. Its small-threshold throughput is therefore a LEAP result, rather than four-pair AVX-512 execution.
 
-```cpp
-#include <supered/supered.hpp>
+## Performance
 
-int compare_one_pair(supered::Context<>& engine,
-                     const supered::PackedDNA128& query,
-                     const supered::PackedDNA128& target) {
-    return engine.distance(query, target);
-}
-```
+### Comparison with original Edlib
 
-This example uses the default K=128 and returns the full distance. With a bounded Context, the result is still the exact distance when it is <=K, or `-1` otherwise.
+The following results use the **same independent input pairs and threshold** for both methods, measured on 2026-10-22. Units are **ns/pair**; `±` is the 95% confidence-interval half-width across five fitted slopes. The supered column is already normalized by all four useful pairs.
 
-This is a convenience API for an isolated pair. The current Myers backend broadcasts that pair across four lanes and returns one result; the LEAP backend computes it once. For a stream of independent pairs, use the batch APIs to fill all four lanes.
+| `K` | Original Edlib | supered four-pair API | Speedup |
+| ---: | ---: | ---: | ---: |
+| 0 | 1344.37 ± 4.12 | 16.17 ± 0.12 | 83.13× |
+| 2 | 1346.30 ± 2.59 | 66.87 ± 0.88 | 20.13× |
+| 5 | 1354.27 ± 2.72 | 64.37 ± 0.16 | 21.04× |
+| 10 | 1345.76 ± 6.27 | 64.42 ± 0.07 | 20.89× |
+| 20 | 1374.90 ± 2.25 | 64.54 ± 0.10 | 21.30× |
+| 30 | 1401.45 ± 0.79 | 64.34 ± 0.09 | 21.78× |
+| 40 | 1417.34 ± 3.80 | 64.75 ± 0.82 | 21.89× |
+| 50 | 1438.45 ± 1.67 | 64.35 ± 0.09 | 22.35× |
+| 60 | 1446.94 ± 13.03 | 64.26 ± 0.12 | 22.52× |
+| 70 | 1472.58 ± 1.72 | 99.50 ± 0.21 | 14.80× |
+| 80 | 1477.02 ± 1.31 | 99.43 ± 0.20 | 14.86× |
+| 90 | 1483.12 ± 1.23 | 99.55 ± 0.03 | 14.90× |
 
-### `distance_many(query, targets, count, output)`: one query against a contiguous array
+The shown workload contains 655,360 independent 128 bp pairs per threshold, all with true distance `<= K`. Queries are random DNA; targets contain substitutions and, where the edit budget permits, balanced insertions/deletions. `K=0` uses identical query/target sequences; `K=2` near inputs contain substitutions only. `K=0/2` use LEAP; the other listed thresholds use four-pair Myers.
 
-`targets` points to a contiguous `PackedDNA128` array, `count` is the number of candidates, and `output` must hold at least `count` integers. `output[i]` is the distance between `query` and `targets[i]`. `count` must be a multiple of four.
+Original Edlib means its **unmodified global NW distance kernel**, with prepared equality masks and target codes; its original block allocation remains inside the timed call. This comparison excludes the public `edlibAlign()` wrapper. supered is measured through its public `distance4()` API. The [complete results](docs/benchmarks/2026-10-22/independent_summary.csv) also include mixed passing/random inputs, single-pair calls, and a separately labeled Edlib reference with stack block storage.
 
-```cpp
-#include <supered/supered.hpp>
-#include <vector>
+Each repeat fits `T(N) = a + bN` at 131,072, 262,144, 393,216, 524,288, and 655,360 pairs; the slope `b` represents per-pair compute time. Inputs are prepared once, copied into cache-sized scratch batches, and touched before timing. Encoding, Edlib input preparation, context allocation, batch loading, and warming are excluded. Input loads, per-call SIMD setup, pair-dependent masks, state initialization, recurrence, thresholding, and result checksums are included.
 
-// Candidates are already packed; their count is a multiple of four.
-std::vector<int> compare_candidates(
-    supered::Context<50>& engine,
-    const supered::PackedDNA128& read,
-    const std::vector<supered::PackedDNA128>& candidates) {
-    std::vector<int> output(candidates.size());
-    engine.distance_many(read, candidates.data(), candidates.size(), output.data());
-    return output;
-}
-```
+### Read × anchor simulation
 
-This wrapper allocates output for demonstration. In a high-frequency workflow, allocate output storage ahead of time and reuse it with direct `distance_many()` calls.
+With **10,000,000 reads and 20 anchors**, all 128 bp, `Context<80>` computed **200,000,000 distances**. Every accepted read has true distance `<= 80` from **every** anchor, and every result was independently checked against original Edlib.
 
-### `distance_pairs(queries, targets, count, output)`: pair two contiguous arrays element by element
+- **97.91 ± 0.25 ns/pair**, fitted across 40–200 million comparisons, three repeats.
+- **391.65 ns per four-pair call**, equivalent to **10.21 million pairs/s**.
+- **19.58 s** fitted compute time for 200 million pairs; the full measured compute passes took **19.88–19.89 s**.
+- **20.77–20.78 s** full-trial wall time, including batch movement, checks, and cache-gate retries.
 
-`queries` and `targets` each contain at least `count` elements, and `output` must hold at least `count` integers. `output[i]` is the distance between `queries[i]` and `targets[i]`. `count` must be a multiple of four.
+The 20 packed anchors occupy 640 bytes. Prepared reads enter scratch in batches of 16–80, outside the compute window; each read makes five four-pair calls against the resident anchors. Input generation, rejection sampling, and oracle validation are excluded from supered compute time. This is a separate workload from the Edlib comparison above.
 
-```cpp
-#include <supered/supered.hpp>
-#include <vector>
+### Machine and cache conditions
 
-// Both arrays are packed, have equal lengths, and contain a multiple of four pairs.
-std::vector<int> compare_pair_arrays(
-    supered::Context<50>& engine,
-    const std::vector<supered::PackedDNA128>& queries,
-    const std::vector<supered::PackedDNA128>& targets) {
-    std::vector<int> output(queries.size());
-    engine.distance_pairs(queries.data(), targets.data(), queries.size(), output.data());
-    return output;
-}
-```
+Both experiments used one compute thread pinned to logical CPU 24 in a Linux VMware guest reporting an AMD EPYC 9654, with Clang 22.1.2, C++20, `-O3`, `-march=native`, and LTO. These are single-thread measurements; the guest does not establish exclusive physical-core ownership.
 
-This API automatically calls `distance4()` for each group of four pairs and writes results in the original array order.
+A PMU gate accepted windows with zero observed DRAM/IO demand fills and retried the same inputs otherwise. L2/L3 hits were allowed, and L2 misses were retained. The results describe cache-conditioned computation and do not imply that every load hits L1. See the [benchmark notes, source identities, fit points, and summaries](docs/benchmarks/2026-10-22/README.md).
 
-### `broadcast(packed)`: construct four pointers to the same input
+## Implementation
 
-`broadcast(packed)` returns `{&packed, &packed, &packed, &packed}` for constructing a `Quad` with a shared input. It only constructs a pointer array; the original object must remain alive while those pointers are used.
+supered specializes Myers bit-vector dynamic programming for fixed 128 bp global alignment. Its packed input is distinct from the evolving Myers `Pv/Mv` state. Equality masks are derived from the two bit planes inside the distance calculation.
 
-For one query against four targets, you can usually call `distance4(query, targets)` directly.
+For `5 <= K < 64`, a 64-bit moving band uses the equal-length global-alignment bound `|i-j| <= floor(K/2)`. Larger thresholds use two 64-bit blocks with explicit cross-block carry and shift propagation. Four independent pairs occupy four 64-bit lanes; AVX-512 instructions, including 256-bit forms enabled by AVX-512VL, update these lanes concurrently. The implementation uses intrinsics and does not require each operation to use a 512-bit register.
 
-## 9. Threads, memory, and high-frequency calls
+For `K < 5`, the corrected AVX2 LEAP backend consumes the same packed inputs and reuses its context workspace. Threshold specialization selects the backend at compile time.
 
-- The library executes in the calling thread and does not create compute threads automatically.
-- Give each compute thread its own Context, especially for the LEAP backend's mutable workspace.
-- Workers may share read-only packed inputs; write their outputs to separate storage.
-- Construct and reuse the Context outside the compute loop, and pass it by reference.
-- Use `distance4()` for four independent pairs, `distance_many()` for one read against contiguous candidates, and `distance_pairs()` for two corresponding contiguous input arrays.
-- Encode inputs and allocate output storage before the compute loop, then reuse them across calls.
+## Validation
 
-The library handles the per-call state initialization and matching information needed for computation. Callers prepare the PackedDNA128 inputs and Context. Cache residency depends on the caller's working set and scheduling; the API does not read sequence files or lock an entire dataset into CPU cache.
+The independent-pair benchmark validated **15,728,640 input pairs** against original Edlib and checked **98,304 pairs** with independent scalar dynamic programming. The read/anchor experiment checked all **200 million results** against original Edlib, with another **20,000 scalar-DP checks**. Timed windows also verified output checksums. These describe the archived experiments; they are not new tests run during documentation updates.
+
+The distribution includes the runnable [`examples/basic.cpp`](examples/basic.cpp). The [published benchmark data](docs/benchmarks/2026-10-22/README.md) contain the source identities and measurement points underlying the reported figures. The full laboratory benchmark harness and per-window binary archives are maintained separately from this library distribution.
+
+## Acknowledgements and source provenance
+
+supered builds on [Myers' bit-vector algorithm](https://doi.org/10.1145/316542.316550), the engineering approach of [Edlib](https://github.com/Martinsos/edlib), and the [corrected LEAP branch](https://github.com/YourongZhou/LEAP/tree/codex/leap-correctness-fixes).
+
+The included LEAP subset is pinned to commit [`6a711282`](https://github.com/YourongZhou/LEAP/commit/6a711282f3494b6b9886236e58c7dfba6efa885a). Original source notices are retained; [NOTICE](NOTICE) and [`leap_origin/UPSTREAM.json`](leap_origin/UPSTREAM.json) record its provenance. This documentation does not assign a new license to third-party source files.
